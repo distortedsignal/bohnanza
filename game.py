@@ -42,15 +42,28 @@ class Deck:
                 str(len(self.discard_order)) + " cards\n")
         return str_out                  
         
-    def draw(self):
+    def draw(self, nCards):
+        """Get nCards from the deck
+        If there are no cards left, you get only as many as are available
+        """
+        out = []
+        for iC in range(nCards):
+            out.append(self.draw_single())
+        return out
+    
+    def draw_single(self):
+        """Get a single card from the deeck"""
         if len(self.draw_order) == 0:
             # Shuffle the discard pile if the draw pile is empty
             self.draw_order = random.sample(
                     self.discard_order, len(self.discard_order))
             self.discard_order = []
             self.completed_rounds += 1
-        return self.draw_order.pop(0)
-    
+        if len(self.draw_order) == 0:
+            return []
+        else: 
+            return self.draw_order.pop(0)
+        
     def discard(self, c):
         if isinstance(c, list):
             for iCard in c:
@@ -84,35 +97,153 @@ class Player:
         return ("Player " + str(self.seat+1) + ".\nHand: " + 
                 str(self.hand)
                     + "\nField 1: " + names[0]
-                    + "\nField 2: " + names[1])
+                    + "\nField 2: " + names[1] + "\n")
         
     def plant_from_hand(self, game_state):
-        field_to_plant, cards = self.strategy.plant()
-        self.plant_field(field_to_plant, cards, game_state)
-    
-    def plant_from_trade(self, game_state, cards):
-        field_to_plant, cards = self.strategy.plant_from_trade()
-        self.plant_field(field_to_plant, cards, game_state)
+        """Get strategy's choice and execute"""
+        if len(self.hand) == 0:
+            return
+        field_to_plant, cards = self.strategy.plant_from_hand(self)
+        for (iField, iCard) in zip(field_to_plant, cards):
+            self.plant_field(iField, iCard, game_state)
+            self.hand.pop(0)
         
+    def plant_from_draw(self, cards, game_state):
+        """Get strategy's choice and execute"""
+        field_to_plant, cards = \
+            self.strategy.plant_from_trade(self, cards)
+        for (iField, iCard) in zip(field_to_plant, cards):
+            self.plant_field(iField, iCard, game_state)
+     
     def plant_field(self, field_num, card, game_state):
+        """Put card down on field, harvest if neccessary"""
         if len(self.fields[field_num]) > 0 and \
               card != self.fields[field_num][0]:
-            discards = self.harvest_field(field_num)
+            self.harvest_field(field_num, game_state)
         self.fields[field_num].append(card)
-        return discards
     
     def harvest_field(self, field_num, game_state):
-        """Get points return discarded cards."""
+        """Get points, discard cards to correct place"""
         nBeans = len(self.fields[field_num])
         if nBeans == 0:
             return []
         nPoints = sum(i <= nBeans for i in \
                       self.fields[field_num][0].point_thresholds)
         self.points += nPoints
-        game_state._deck.discard(self.fields[field_num][0:(nBeans-nPoints)])
-        self.point_discards.append(self.fields[field_num][-nPoints:])
-        self.fields[field_num] = []
         
+        for_discard = self.fields[field_num][0:(nBeans-nPoints)]
+        for_points = self.fields[field_num][(nBeans-nPoints):]
+        if len(for_discard) + len(for_points) != nBeans:
+            print('error')
+            raise AssertionError("Improper harvest.")
+                
+        # Handle cards from field
+        game_state._deck.discard(for_discard)
+        self.point_discards.extend(for_points)
+        
+        # Empty the field
+        self.fields[field_num] = []
+      
+class Game: 
+    
+    def __init__(self, player_strats):
+        self._deck = Deck()
+        self._players = [Player(i, player_strats[i]) for i in range(len(player_strats))]
+        self.deal_game(len(self._players))
+        
+    def __repr__(self):
+        return "Bohnanza game with \n" + str(self._players) + " players."
+        
+    def run(self):
+        active_player = 0
+        round_number = 1
+        empty_deck = False
+        while not (self.game_over() or empty_deck):
+            empty_deck = self.turn(active_player)
+            active_player += 1
+
+            if active_player >= len(self._players):
+                active_player = 0
+                round_number += 1
+
+        print("GAME OVER\nPlayer points: " + \
+              str([p.points for p in self._players]))
+        
+    def deal_game(self, nPlayers):
+        """Initial game setup"""
+        for iPlayer in range(0,nPlayers):
+            self._players[iPlayer].hand.extend(self._deck.draw(5))
+    
+    def game_over(self):
+        """The game is over after completing 3 times through the deck"""
+        return len(self._deck.draw_order) == 0 and \
+            self._deck.completed_rounds >= 2
+        
+    def turn(self, player_num):
+        """Have a player take a turn"""
+          
+        self.gamestate_is_valid()
+
+        # Step 1: Plant fron hand
+        self._players[player_num].plant_from_hand(self)
+        
+        self.gamestate_is_valid()
+
+        # Step 2: Draw new cards & trade
+        faceup_cards = self._deck.draw(2)
+        if len(faceup_cards) != 2:
+            self._deck.discard(faceup_cards)
+            return 1
+        # trade_spec = self._strategy[player_num].trade(faceup_cards)
+        # self.execute_trade(trade_spec)
+
+        self.gamestate_is_valid(faceup_cards)
+        
+        # Step 3: Plant new cards
+        self._players[player_num].plant_from_draw(faceup_cards, self)
+        
+        self.gamestate_is_valid()
+        
+        # Step 4: Draw new cards
+        new_cards = self._deck.draw(3)
+        if len(new_cards) != 3:
+            self._deck.discard(new_cards)
+            return 1
+        self._players[player_num].hand.extend(new_cards) 
+
+        self.gamestate_is_valid()
+
+    def gamestate_is_valid(self, addl_cards=[], throw_exception=False):
+        """
+        If !throw_exception, returns a boolean of if the game state is valid
+        If throw_exception, throws an exception if the game state is not valid
+        """
+        original_types = Deck.types
+        current_cards = defaultdict(int)
+
+        for card in self._deck.draw_order:
+            current_cards[card.name] += 1
+        for card in self._deck.discard_order:
+            current_cards[card.name] += 1
+        for card in addl_cards: 
+            current_cards[card.name] += 1
+
+        for player in self._players:
+            for card in player.hand:
+                current_cards[card.name] += 1
+            for card in player.point_discards:
+                current_cards[card.name] += 1
+            for field in player.fields:
+                for card in field:
+                    current_cards[card.name] += 1
+
+        for key in original_types:
+            if original_types[key] != current_cards[key]:
+                if not throw_exception:
+                    return False
+                raise AssertionError("not all cards are present")
+        return True
+      
 class Strategy: 
     
     def __init__(self, seat):
@@ -147,141 +278,63 @@ class AutarkyStrategy(Strategy):
         self.name = "Autarky" 
         
     def plant_from_hand(self, player):
-        """Plant one card, harvesting field 1 if neither field matches."""
+        """Specify which card goes in which field, in order."""
         if len(player.hand) == 0: 
             plants = []
             field_to_plant = []
             return [field_to_plant, plants]
         
-        if len(player.hand) == 1:
-            plants = player.hand[0]
-        elif player.hand[0] == player.hand[1]:
-            plants = player.hand[0:1]
-        elif (player.hand[0] == player.fields[0] and \
-                  player.hand[1] == player.fields[1]) or \
-                  (player.hand[0] == player.fields[1] and \
-                  player.hand[1] == player.fields[0]):
-            plants = player.hand[0:1]
-            if plants[0] == player.fields[0]: 
-                fields_to_plant = [0]
+        plants = [player.hand[0]]
+
+#        if len(player.hand) == 1:
+#            plants = [player.hand[0]]
+#        elif player.hand[0] == player.hand[1]:
+#            plants = player.hand[0:2]
+#        else:
+#            plants = [player.hand[0]]
+#        elif (player.hand[0] == player.fields[0] and \
+#                  player.hand[1] == player.fields[1]) or \
+#                  (player.hand[0] == player.fields[1] and \
+#                  player.hand[1] == player.fields[0]):
+#            plants = player.hand[0:1]
+#            if plants[0] == player.fields[0]: 
+#                fields_to_plant = [0]
                          
-        if len(self.field2) == 0 or player.hand[0] == self.field2[0]:
-            fields_to_plant = 2
+        if len(player.fields[1]) == 0 or player.hand[0] == player.fields[1][0]:
+            fields_to_plant = [1]
         else:
-            fields_to_plant = 1
+            fields_to_plant = [0]
             
         return [fields_to_plant, plants]
 
     def plant_from_trade(self, player, cards): 
+        """Specify which card goes in which field, in order."""
+        if len(cards) == 0: 
+            field_to_plant = []
+            return [field_to_plant, cards]
+        
+        fields_to_plant = []
+        for iCard in cards:
+            if len(player.fields[1]) == 0 or cards[0] == player.fields[1][0]:
+                fields_to_plant.append(1)
+            else:
+                fields_to_plant.append(0)
+            
+        return [fields_to_plant, cards]
         pass
 
     def trade(self, player, game, cards): 
         pass
-            
-class Game: 
-    
-    def __init__(self, player_strats):
-        self._deck = Deck()
-        self._players = [Player(i, player_strats[i]) for i in range(len(player_strats))]
-        self.deal_game(len(self._players))
         
-    def __repr__(self):
-        return "Bohnanza game with " + str(self._players) + " players."
-        
-    def run(self):
-        active_player = 0
-        round_number = 1
-        while not self.game_over():
-            self.turn(active_player)
-            active_player += 1
-
-            if active_player >= len(self._players):
-                active_player = 0
-                round_number += 1
-
-        print("GAME OVER\nPlayer points: " + \
-              str([p.points for p in self._players]))
-        
-    def deal_game(self, nPlayers):
-        """Initial game setup"""
-        for iPlayer in range(0,nPlayers):
-            for iCard in range(5):
-                self._players[iPlayer].hand.append(self._deck.draw())
-    
-    def game_over(self):
-        """The game is over after completing 3 times through the deck"""
-        return len(self._deck.draw_order) == 0 and \
-            self._deck.completed_rounds >= 2
-        
-    def turn(self, player_num):
-        """Have a player take a turn"""
-        
-        #print("Turn " + str(round_number) + " for " + str(player))
-        
-        # Step 1: Plant fron hand
-        self._player[player_num].plant(self)
-        
-        
-#        field_to_plant = self._strategy[player_num].plant_from_hand(
-#                self._players[player_num])
-#        discards = self._players[player_num].plant_field(field_to_plant, 
-#                     self._players[player_num].hand.pop())
-#        self._deck.discard(discards)
-#        
-        # Step 2a: Draw new cards & trade
-        new_cards = [self.deck.draw(), self.deck.draw()]
-        # trade_spec = self._strategy[player_num].trade(new_cards)
-        # TODO: Handle trading between players
-        
-        # Step 3: Plant new cards
-        self._players[player_num].plant_from_draw(new_cards, self)
-        
-        # Step 4: Draw new cards
-        for iCard in range(3):
-            self._players[player_num].hand.append(self.deck.draw()) 
-        
-#        print("Finished turn for " + str(player))
-#        print("================\n")
-        
-        return 0
-
-    def gamestate_is_valid(self, throw_exception=False):
-        """
-        If throw_exception is false, returns a boolean of if the game state is valid
-        If throw_exception is true, throws an exception if the game state is not valid
-        """
-        original_types = Deck.types
-        current_cards = defaultdict(int)
-
-        for card in self._deck.draw_order:
-            current_cards[card.name] += 1
-        for card in self._deck.discard_order:
-            current_cards[card.name] += 1
-
-        for player in self._players:
-            for card in player.hand:
-                current_cards[card.name] += 1
-            for card in player.point_discards:
-                current_cards[card.name] += 1
-            for field in player.fields:
-                for card in field:
-                    current_cards[card.name] += 1
-
-        for key in original_types:
-            if original_types[key] != current_cards[key]:
-                if not throw_exception:
-                    return False
-                raise AssertionError("not all cards are present")
-        return True
-
        
 def simulate(nPlayers):
-    g = Game([AutarkyStrategy(i+1) for i in range(nPlayers)])
+    g = Game([AutarkyStrategy(i) for i in range(nPlayers)])
     g.run()
     return g
 
 if __name__ == "__main__":
     g = simulate(3)
+    g.gamestate_is_valid()
     
 #    total_cards = (len(g.deck.draw_order) + 
 #                   len(g.deck.discard_order) + 
