@@ -5,6 +5,7 @@ An implementation of Bohnanza
 """
 
 import random 
+from collections import defaultdict
 
 class Card: 
     """Card Object
@@ -180,7 +181,7 @@ class AutarkyStrategy(Strategy):
 class Game: 
     
     def __init__(self, player_strats):
-        self._deck = Deck()        
+        self._deck = Deck()
         self._players = [Player(i, player_strats[i]) for i in range(len(player_strats))]
         self.deal_game(len(self._players))
         
@@ -215,7 +216,7 @@ class Game:
     def turn(self, player_num):
         """Have a player take a turn"""
         
-#        print("Turn " + str(round_number) + " for " + str(player))
+        #print("Turn " + str(round_number) + " for " + str(player))
         
         # Step 1: Plant fron hand
         self._player[player_num].plant(self)
@@ -243,6 +244,36 @@ class Game:
 #        print("================\n")
         
         return 0
+
+    def gamestate_is_valid(self, throw_exception=False):
+        """
+        If throw_exception is false, returns a boolean of if the game state is valid
+        If throw_exception is true, throws an exception if the game state is not valid
+        """
+        original_types = Deck.types
+        current_cards = defaultdict(int)
+
+        for card in self._deck.draw_order:
+            current_cards[card.name] += 1
+        for card in self._deck.discard_order:
+            current_cards[card.name] += 1
+
+        for player in self._players:
+            for card in player.hand:
+                current_cards[card.name] += 1
+            for card in player.point_discards:
+                current_cards[card.name] += 1
+            for field in player.fields:
+                for card in field:
+                    current_cards[card.name] += 1
+
+        for key in original_types:
+            if original_types[key] != current_cards[key]:
+                if not throw_exception:
+                    return False
+                raise AssertionError("not all cards are present")
+        return True
+
        
 def simulate(nPlayers):
     g = Game([AutarkyStrategy(i+1) for i in range(nPlayers)])
