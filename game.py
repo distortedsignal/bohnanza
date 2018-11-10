@@ -9,10 +9,10 @@ import random
 class Card: 
     """Card Object
     Name  and point thresholds are the only properties. The point thresholds 
-    are organized the way they are on the card - to get 1 point, you need the
+    are organized the way they are on the card - to get 1 point, you need th
     number of cards listed first in the point_thresholds, 2 for the 2nd, ... 
     """
-    types = {'black':[2, 2, 3], 'pinto': [3, 6, 8], 'chili': [3, 5, 5, 8]}
+    types = {'black':[2, 2, 3], 'pinto': [3, 6, 8, 12], 'chili': [3, 5, 5, 8]}
     
     def __init__(self,name):
         self.name = name
@@ -63,124 +63,197 @@ class Player:
     Each player type must implement the following methods: 
         plant: takes an array of cards and plants them
     """
-    def __init__(self, seat):
+    def __init__(self, seat, strat):
         self.hand = []
-        self.field1 = []
-        self.field2 = []
+        self.fields = [[], []]
         self.points = 0
         self.point_discards = []
-        self.name = "Generic" 
         self.seat = seat
+        self.strategy = strat
         
     def __repr__(self):
-        if len(self.field1) == 0:
-            field1_name = "[Empty]"
-        else:
-            field1_name = str(self.field1[0]) + "(" + str(len(self.field1)) + ")" 
-            
-        if len(self.field2) == 0:
-            field2_name = "[Empty]"
-        else:
-            field2_name = str(self.field2[0]) + "(" + str(len(self.field2)) + ")"
-            
-        return (self.name + " player (" + str(self.seat) + ").\nHand: " + 
+        names = []
+        for iField in range(2):    
+            if len(self.fields[iField]) == 0:
+                names.append("[Empty]")
+            else:
+                names.append(str(self.fields[iField][0]) + \
+                                 "(" + str(len(self.fields[iField])) + ")")
+                
+        return ("Player " + str(self.seat+1) + ".\nHand: " + 
                 str(self.hand)
-                    + "\nField 1: " + field1_name
-                    + "\nField 2: " + field2_name)
+                    + "\nField 1: " + names[0]
+                    + "\nField 2: " + names[1])
         
-    def plant_field(self, field, card, deck):
-        if len(field) > 0 and card != field[0]:
-            self.harvest_field(field, deck)
-        field.append(card)
-
-    def harvest_field(self, field, deck):
+    def plant_from_hand(self, game_state):
+        field_to_plant, cards = self.strategy.plant()
+        self.plant_field(field_to_plant, cards, game_state)
+    
+    def plant_from_trade(self, game_state, cards):
+        field_to_plant, cards = self.strategy.plant_from_trade()
+        self.plant_field(field_to_plant, cards, game_state)
+        
+    def plant_field(self, field_num, card, game_state):
+        if len(self.fields[field_num]) > 0 and \
+              card != self.fields[field_num][0]:
+            discards = self.harvest_field(field_num)
+        self.fields[field_num].append(card)
+        return discards
+    
+    def harvest_field(self, field_num, game_state):
         """Get points return discarded cards."""
-        nBeans = len(field)
+        nBeans = len(self.fields[field_num])
         if nBeans == 0:
-            return
-        nPoints = sum(i <= nBeans for i in field[0].point_thresholds)
+            return []
+        nPoints = sum(i <= nBeans for i in \
+                      self.fields[field_num][0].point_thresholds)
         self.points += nPoints
-        deck.discard(field[0:(nBeans-nPoints)])
-        self.point_discards.append(field[-nPoints:])
-        field = []
+        game_state._deck.discard(self.fields[field_num][0:(nBeans-nPoints)])
+        self.point_discards.append(self.fields[field_num][-nPoints:])
+        self.fields[field_num] = []
         
-        print("Harvest by " + str(self))
-
-class AutarkyPlayer(Player):
+class Strategy: 
     
     def __init__(self, seat):
-        Player.__init__(self, seat)
-        self.name = "Autarky" 
+        self.name = "Generic" 
         
-    def plant(self, cards, deck):
-        """Plant one card, harvesting field 1 if neither field matches."""
-        for iCard in cards:
-            if len(self.field2) == 0 or iCard == self.field2[0]:
-                self.plant_field(self.field2, iCard, deck)
-            else:
-                self.plant_field(self.field1, iCard, deck)
+    def __repr__(self): 
+        return self.name + " player."
+        
+    def plant_from_hand(self, cards, player):
+        """Return a list of which field to put cards in for the given player
+        """
+        pass
     
-    def trade(self, cards): 
+    def plant_from_trade(self, cards, player):
+        """Return a list of which field to put cards in for the given player
+        """
+        pass
+    
+    def trade(self, cards):
         """Trade with other players. Still working out what the mechanics of 
         this are 
         """
-        return cards
+        pass
+    
+class AutarkyStrategy(Strategy):
+    """Example class for player strategy. This player does not trade.
+    
+    To be expanded later with trading. 
+    """
+    
+    def __init__(self, seat):
+        self.name = "Autarky" 
+        
+    def plant_from_hand(self, player):
+        """Plant one card, harvesting field 1 if neither field matches."""
+        if len(player.hand) == 0: 
+            plants = []
+            field_to_plant = []
+            return [field_to_plant, plants]
+        
+        if len(player.hand) == 1:
+            plants = player.hand[0]
+        elif player.hand[0] == player.hand[1]:
+            plants = player.hand[0:1]
+        elif (player.hand[0] == player.fields[0] and \
+                  player.hand[1] == player.fields[1]) or \
+                  (player.hand[0] == player.fields[1] and \
+                  player.hand[1] == player.fields[0]):
+            plants = player.hand[0:1]
+            if plants[0] == player.fields[0]: 
+                fields_to_plant = [0]
+                         
+        if len(self.field2) == 0 or player.hand[0] == self.field2[0]:
+            fields_to_plant = 2
+        else:
+            fields_to_plant = 1
+            
+        return [fields_to_plant, plants]
+
+    def plant_from_trade(self, player, cards): 
+        pass
+
+    def trade(self, player, game, cards): 
+        pass
             
 class Game: 
     
-    def __init__(self, players):
-        self.deck = Deck()        
-        self.players = players
-        self.deal_game(len(self.players))
+    def __init__(self, player_strats):
+        self._deck = Deck()        
+        self._players = [Player(i, player_strats[i]) for i in range(len(player_strats))]
+        self.deal_game(len(self._players))
+        
+    def __repr__(self):
+        return "Bohnanza game with " + str(self._players) + " players."
         
     def run(self):
         active_player = 0
         round_number = 1
         while not self.game_over():
-            self.turn(self.players[active_player], round_number)
+            self.turn(active_player)
             active_player += 1
-            if active_player >= len(self.players):
+
+            if active_player >= len(self._players):
                 active_player = 0
                 round_number += 1
-    
+
+        print("GAME OVER\nPlayer points: " + \
+              str([p.points for p in self._players]))
+        
     def deal_game(self, nPlayers):
         """Initial game setup"""
         for iPlayer in range(0,nPlayers):
             for iCard in range(5):
-                self.players[iPlayer].hand.append(self.deck.draw())
+                self._players[iPlayer].hand.append(self._deck.draw())
     
     def game_over(self):
         """The game is over after completing 3 times through the deck"""
-        return len(self.deck.draw_order) == 0 and self.deck.completed_rounds >= 2
+        return len(self._deck.draw_order) == 0 and \
+            self._deck.completed_rounds >= 2
         
-    def turn(self, player, round_number):
+    def turn(self, player_num):
         """Have a player take a turn"""
         
-        print("Turn " + str(round_number) + " for " + str(player))
+#        print("Turn " + str(round_number) + " for " + str(player))
         
         # Step 1: Plant fron hand
-        player.plant([player.hand.pop()], self.deck)
+        self._player[player_num].plant(self)
         
-        # Step 2a: Draw new cards 
+        
+#        field_to_plant = self._strategy[player_num].plant_from_hand(
+#                self._players[player_num])
+#        discards = self._players[player_num].plant_field(field_to_plant, 
+#                     self._players[player_num].hand.pop())
+#        self._deck.discard(discards)
+#        
+        # Step 2a: Draw new cards & trade
         new_cards = [self.deck.draw(), self.deck.draw()]
-        
-        print("Drew cards:\n" + str(new_cards))
-        
-        # Step 2b: Trade cards
-        cards = player.trade(new_cards)
+        # trade_spec = self._strategy[player_num].trade(new_cards)
+        # TODO: Handle trading between players
         
         # Step 3: Plant new cards
-        player.plant(cards, self.deck)
+        self._players[player_num].plant_from_draw(new_cards, self)
         
         # Step 4: Draw new cards
         for iCard in range(3):
-            player.hand.append(self.deck.draw()) 
+            self._players[player_num].hand.append(self.deck.draw()) 
         
-        print("Finished turn for " + str(player))
-        print("================\n")
+#        print("Finished turn for " + str(player))
+#        print("================\n")
         
         return 0
        
-if __name__ == "__main__":
-    g = Game([AutarkyPlayer(i+1) for i in range(4)])
+def simulate(nPlayers):
+    g = Game([AutarkyStrategy(i+1) for i in range(nPlayers)])
     g.run()
+    return g
+
+if __name__ == "__main__":
+    g = simulate(3)
+    
+#    total_cards = (len(g.deck.draw_order) + 
+#                   len(g.deck.discard_order) + 
+#                   sum([len(p.hand) for p in g.players]))
+#    
+#    print("Total cards: " + str(total_cards))
