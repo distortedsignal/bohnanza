@@ -57,7 +57,7 @@ def simulate(nPlayers):
 if __name__ == "__main__":
     points = []
     for iRun in range(5000):
-        points.append(simulate(5))
+        points.append(simulate(3))
     
     avg = [sum([p[i] for p in points])/len(points) for i in range(len(points[0]))]
     print(avg)
