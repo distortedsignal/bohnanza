@@ -13,7 +13,10 @@ class Card:
     are organized the way they are on the card - to get 1 point, you need th
     number of cards listed first in the point_thresholds, 2 for the 2nd, ... 
     """
-    types = {'black':[2, 2, 3], 'pinto': [3, 6, 8, 12], 'chili': [3, 5, 5, 8]}
+    types = {'garden':[2, 2, 3], 'red': [2, 3, 4, 5], 
+             'black-eyed': [2, 4, 5, 6], 'soy': [2, 4, 6, 7], 
+             'green': [3, 5, 6, 7], 'stink': [3, 5, 7, 8], 
+             'chili': [3, 6, 8, 9], 'blue': [4, 6, 8, 10]}
     
     def __init__(self,name):
         self.name = name
@@ -27,7 +30,8 @@ class Card:
     
 class Deck:  
     
-    types = {'black': 12, 'pinto': 64, 'chili': 48}
+    types = {'garden': 6, 'red': 8, 'black-eyed': 10, 'soy': 12, 
+             'green': 14, 'stink': 16, 'chili': 18, 'blue': 20}
     
     def __init__(self): 
         cards = [Card(name) for name in 
@@ -127,8 +131,7 @@ class Player:
         nBeans = len(self.fields[field_num])
         if nBeans == 0:
             return []
-        nPoints = sum(i <= nBeans for i in \
-                      self.fields[field_num][0].point_thresholds)
+        nPoints = sum([i <= nBeans for i in self.fields[field_num][0].point_thresholds])
         self.points += nPoints
         
         for_discard = self.fields[field_num][0:(nBeans-nPoints)]
@@ -165,9 +168,11 @@ class Game:
             if active_player >= len(self._players):
                 active_player = 0
                 round_number += 1
-
-        print("GAME OVER\nPlayer points: " + \
-              str([p.points for p in self._players]))
+        points = [p.points for p in self._players]
+        return points
+    
+#        print("GAME OVER\nPlayer points: " + \
+#              str([p.points for p in self._players]))
         
     def deal_game(self, nPlayers):
         """Initial game setup"""
@@ -181,7 +186,7 @@ class Game:
         
     def turn(self, player_num):
         """Have a player take a turn"""
-          
+        
         self.gamestate_is_valid()
 
         # Step 1: Plant fron hand
@@ -191,12 +196,11 @@ class Game:
 
         # Step 2: Draw new cards & trade
         faceup_cards = self._deck.draw(2)
-        if len(faceup_cards) != 2:
+        if (len(faceup_cards) != 2) or any([not card for card in faceup_cards]):
             self._deck.discard(faceup_cards)
             return 1
         # trade_spec = self._strategy[player_num].trade(faceup_cards)
         # self.execute_trade(trade_spec)
-
         self.gamestate_is_valid(faceup_cards)
         
         # Step 3: Plant new cards
@@ -206,7 +210,7 @@ class Game:
         
         # Step 4: Draw new cards
         new_cards = self._deck.draw(3)
-        if len(new_cards) != 3:
+        if (len(new_cards) != 3) or any([not card for card in new_cards]):
             self._deck.discard(new_cards)
             return 1
         self._players[player_num].hand.extend(new_cards) 
@@ -284,22 +288,7 @@ class AutarkyStrategy(Strategy):
             field_to_plant = []
             return [field_to_plant, plants]
         
-        plants = [player.hand[0]]
-
-#        if len(player.hand) == 1:
-#            plants = [player.hand[0]]
-#        elif player.hand[0] == player.hand[1]:
-#            plants = player.hand[0:2]
-#        else:
-#            plants = [player.hand[0]]
-#        elif (player.hand[0] == player.fields[0] and \
-#                  player.hand[1] == player.fields[1]) or \
-#                  (player.hand[0] == player.fields[1] and \
-#                  player.hand[1] == player.fields[0]):
-#            plants = player.hand[0:1]
-#            if plants[0] == player.fields[0]: 
-#                fields_to_plant = [0]
-                         
+        plants = [player.hand[0]] 
         if len(player.fields[1]) == 0 or player.hand[0] == player.fields[1][0]:
             fields_to_plant = [1]
         else:
@@ -329,15 +318,13 @@ class AutarkyStrategy(Strategy):
        
 def simulate(nPlayers):
     g = Game([AutarkyStrategy(i) for i in range(nPlayers)])
-    g.run()
-    return g
+    return g.run()
 
 if __name__ == "__main__":
-    g = simulate(3)
-    g.gamestate_is_valid()
+    points = []
+    for iRun in range(5000):
+        points.append(simulate(3))
     
-#    total_cards = (len(g.deck.draw_order) + 
-#                   len(g.deck.discard_order) + 
-#                   sum([len(p.hand) for p in g.players]))
-#    
-#    print("Total cards: " + str(total_cards))
+    avg = [sum([p[i] for p in points])/len(points) for i in range(len(points[0]))]
+    print(avg)
+    
