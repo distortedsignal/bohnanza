@@ -4,6 +4,9 @@ Created on Fri Nov 16 22:20:42 2018
 
 @author: David Kelley, 2018
 """
+
+from multiprocessing import Pool
+
 from game import Game, Strategy
 
 class NaiveStrategy(Strategy):
@@ -54,10 +57,13 @@ def simulate(nPlayers):
     g = Game([NaiveStrategy(i) for i in range(nPlayers)])
     return g.run()
 
+def f(x):
+    return simulate(3)
+
 if __name__ == "__main__":
-    points = []
-    for iRun in range(5000):
-        points.append(simulate(3))
+    pool = Pool()
+
+    points = pool.map(f, range(5000))
     
     avg = [sum([p[i] for p in points])/len(points) for i in range(len(points[0]))]
     print(avg)
